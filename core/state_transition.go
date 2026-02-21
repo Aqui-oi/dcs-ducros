@@ -606,7 +606,22 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	} else {
 		fee := new(uint256.Int).SetUint64(st.gasUsed())
 		fee.Mul(fee, effectiveTipU256)
-		st.state.AddBalance(st.evm.Context.Coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
+
+		// Treasury split: 5% to treasury, 95% to miner
+		// This ensures the Ducros infrastructure receives funding from transaction fees
+		treasuryFee := new(uint256.Int).Set(fee)
+		treasuryFee.Mul(treasuryFee, uint256.NewInt(5))
+		treasuryFee.Div(treasuryFee, uint256.NewInt(100))
+
+		minerFee := new(uint256.Int).Set(fee)
+		minerFee.Sub(minerFee, treasuryFee)
+
+		// Treasury address - Infrastructure (same as in consensus/randomx/consensus.go)
+		treasuryAddress := common.HexToAddress("0x4a0508d3a953882fd9b4859a5cf08d56dd32ee1b")
+
+		// Distribute fees: 95% to miner, 5% to treasury
+		st.state.AddBalance(st.evm.Context.Coinbase, minerFee, tracing.BalanceIncreaseRewardTransactionFee)
+		st.state.AddBalance(treasuryAddress, treasuryFee, tracing.BalanceIncreaseRewardTransactionFee)
 
 		// add the coinbase to the witness iff the fee is greater than 0
 		if rules.IsEIP4762 && fee.Sign() != 0 {
